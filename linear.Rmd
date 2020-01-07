@@ -1,0 +1,437 @@
+---
+title: "linear regression in R"
+output:
+  html_notebook: default
+  pdf_document: default
+---
+
+## Introdcution 
+
+In this paper we are going be discussing the linear regression models. Basically, the base-R has the most required functions to build and evaluate  these models. However, some packages have more powrfull functions that make the work more easier. For instance the **broom** package prints the models' results in a nicer and easier way to be read, the **performance** package check the different assumptions straightforwardly.
+
+To well understand how the linear model works we make use of the R build-in dataset **airquality** since this data has numeric and categorical features which they have different interpreation using this type of models.
+
+We fit different linear models:
+* Model with one numeric  regressor.
+* Model with one categorical regressor.
+* Model with all the regressors.
+* Model with interaction between regressors.
+* Model with polynomial regressors. 
+
+We fit and evaluate each model using some statistic tools like **t statistic*,**F statistic**, **$R^2$**, **anova** tables..ect, and also we check the different model classical assumptions like **linearity**, **autocorrelation**..ect.
+
+## Data preparation
+
+First let's call the **tidyverse** package and the **airquality** data.
+
+
+```{r}
+library(tidyverse)
+data("airquality")
+glimpse(airquality)
+summary(airquality)
+```
+
+
+As we see we have large number of missing values **44** compared to the size of the data **153**, so it is better to impute these values rather than to remove them. To do this we make use of **mice** package
+
+
+```{r}
+library(mice)
+md.pattern(airquality)
+impute<-mice(airquality,m=1,seed = 11)
+data<-complete(impute)
+summary(data)
+
+```
+
+
+
+For simplification we remove **Day** variable and we convert the **Month** variable to factor type.
+
+
+
+```{r}
+data<-data[,-6]
+data$Month<-as.factor(data$Month)
+glimpse(data)
+summary(data)
+```
+
+
+
+### linear model with numeric regressor.
+
+
+Our target variable is the **Ozone** variable, it will be used as dependent variable in this simplest model and we make use of the numeric variable **Temp** as the unique independent variable.
+
+
+the first thing to do before fitting the model is to visualize the relationship between this two variables
+
+
+```{r}
+plot(data$Ozone,data$Temp)
+```
+
+
+As we see that this points are not linearly related, but even though it can be approximately fitted by linear equation, we may have some doubt a bout the significance of this linear relation. However, we can confirm or infirm our doubts in the model evaluation step.  
+
+
+
+```{r}
+model<-lm(Ozone~Temp,data=data)
+summary(model)
+```
+ 
+ 
+As we see the output is little messy and it will be difficult to easily manipulate it, that is why the we make use of **broom** package that remove unnecessary informations and collect the important results in a data frame so that we can manipulate and visualize.
+
+
+```{r}
+library(broom)
+tidy(model,conf.int = TRUE)
+```
+
+
+we can also get all the required statistics about each observation:
+
+
+* **.fitted** : The fitted value.
+* **.se.fit** : The standard error of the fitted value.
+* **resid**   : The residual.
+* **.hat**  : the corresponding element from the diagonal of the hat matrix.
+* **sigma** : Estimate of residual standard deviation when this observation is dropped from the model.
+* **.cooksd** : cooks distance to check if this obs is an outlier.
+* **.std.resid**: Standardized residual.
+
+
+```{r}
+augment(model)
+
+```
+
+
+To extract all the statistics of the model  we use **glance** function as follows.
+
+
+
+```{r}
+glance(model)
+
+```
+
+
+
+**Note**: The model includes the intercept by default, so if you want to remove the intercept rewritte the model **lm(Ozone~Temp-1,data=data).
+
+
+The column name **statistic** stands for **fisher** statistic to test the overall significance of the model.
+
+With these outputs we can plot the coffecients as follows.
+
+
+
+```{r}
+modtidy<-tidy(model,conf.int = TRUE)
+ggplot(modtidy,aes(term,estimate, color=term))+
+  geom_point()+
+  geom_errorbar(aes(ymin=conf.low,ymax=conf.high))
+```
+
+
+To check all the classical assumptions the powerful package will do everthing for us with a super easy way without any care about which statistic to use. 
+
+
+```{r}
+library(performance)
+check_model(model)
+
+```
+
+**check_model** function gives us five plote to get a first glance about the main assumptions.
+The upper two ones for the normality by which we think we are more likely to reject the normality assumption.
+
+The middle ones show more non linearity relationship than linearity between the residuals (or the square root of the standardized residuals) against the fitted values which leads us  to think more likely to reject the homoscedasticity assumption.
+
+The last plot is for outliers, so large values for cook's distance correspond to outliers .
+
+We can check the statistic significance of these assumptions as follows
+
+
+```{r}
+check_autocorrelation(model)
+check_heteroscedasticity(model)
+check_normality(model)
+check_outliers(model)
+```
+
+
+Result with green color indicates indicates the validity of the corresponding assumption, and with red color the assumption is not satisfied.
+
+As we see we do not have neither the autocorrelation problem nor the outliers, but the most important assumption of linearity that allows the use of the most statistic tests like t-test and F-test is violated, and hence leads to think more likely to reject the whole model.
+
+In addition the residuals are hetereskedastic which also gives a wrong t-values.
+
+
+Since the residulas are not normally distributed this package can help us to find out the possible closest distribution.
+
+
+```{r}
+check_distribution(model)
+```
+
+
+The closest distribution to the residuals  is the normal distribution among the known distributions, but it is not closer enough to be adopted since it was rejected by the statistic tests.
+
+For the response varaible this function suggests to use negative binomial distribution and in fact this lines with the fact that the response values are integers, which can be treated as count data, and hence this distribution can be more suitable than the normal distribution.
+
+We can easily fit a count data model using **GLM** models by using the function **glm.nb** from **MASS** package. Howoever, this type of models beyond the scope of this paper, but we will investigate this  type of models further in other paper.   
+
+We can also get the **anova** table as follows.
+
+```{r}
+tidy(anova(model))
+```
+
+  
+
+For the prediction we use the function **predict**.
+
+```{r}
+predict(model,list(Temp=c(56,45,70)))
+```
+
+
+### Linear model with categorical regressor
+
+
+For this model we use the categorical variable **Month** as regressor.
+
+```{r}
+modelcat<-lm(Ozone~Month,data)
+tidy(modelcat,conf.int = TRUE)
+```
+
+How do we explain these estimates?
+
+this model converts each level (Month) to damy variable with 1 if the observation falls onto this particular month 0 otherwise, and since the total sum of these dumies equals to 1 which make the design matrix singular then we should keep only 4 damies (since we have in this case 5 levels), so that the intercept estimat will be the  **Ozone mean** the first level (here Month5), and the estimate of any other level is the difference between the Ozone mean of this particular level and the Ozone mean of the first level (the intercept).
+
+
+```{r}
+tapply(data$Ozone, data$Month, mean)
+```
+ 
+ As we see the intercept is equal to the Ozone mean of the first level (Month5), and **Mont6 coefficient** (17.509677) is equal 39.80000 -22.29032 , and so on for the rest of the levels.
+
+
+
+```{r}
+glance(modelcat)
+```
+
+
+
+We can simplify the model if we see that some levels have approximatley the same effect. In our case the **Month7** estimate and **Month8** estimate are closer to each other and with their standard errors close to 7 we can be confident (95%) that they have the same effect size. To check this we collaps these two levels in one level then we fit the model and next we campare this model by the previous one using **anova** function   
+
+
+
+```{r}
+levels(data$Month)[3:4]<-"7-8"
+levels(data$Month)
+```
+
+
+
+Now we are ready fit the model.
+
+
+```{r}
+modelcat1<-lm(Ozone~Month,data)
+anova(modelcat,modelcat1)
+
+```
+
+
+
+Since we get large p-value **0.7779** for fisher we stick with this simpler model. 
+
+
+
+### Multiple linear regression model
+
+
+No we fit a model with all the variables, which they are mix of numeric and nominal types.
+
+But before fitting the model let's get the correlation matrix to get a first glance about the relationships between every two variables
+
+
+```{r}
+library(psych)
+pairs.panels(data)
+
+```
+
+
+From this panel we can see that the relationship between the response Ozone and the regressor Solar.R are likely to be non linear than linear, the same thing applies for the Temp variable.  unlike the previous regressors, the relationship with Wind is approximatley linear and negative.  
+
+We take into account later on these non linearities, but now let's go ahead and fit a linear model.
+
+
+```{r}
+modelall<-lm(Ozone~.,data=data)
+tidy(modelall)
+glance(modelall)
+
+```
+
+Including all the variables we get larger value for R squared than the previous models, and all the variables are significant. 
+
+To understand how to get the fitted values Let's take a particular observation
+
+
+```{r}
+data[5,]
+```
+
+
+Since this observation falls onto the **Mont5** so all the other levels will get 0 and hence the predicted **y** value will be **-71.72882982+0.05446499*264-3.03202854*14.3+1.82599275*56=1.547513**     
+
+
+```{r}
+augment(modelall)[5,]
+```
+
+
+Now since the model is converted to data frame with **tidy** function we can plot avery thing we want. For instance, let's plot the model coefficients with their confidence intervals.
+
+
+```{r}
+modelalltidy<-tidy(modelall,conf.int = TRUE)
+ggplot(modelalltidy,aes(term,estimate, color=term))+
+  geom_point()+
+  geom_errorbar(aes(ymin=conf.low,ymax=conf.high))
+```
+
+
+The next step to do is to check the classical assumptions as we did earlier.
+
+
+```{r}
+check_model(modelall)
+```
+
+
+Now we check each assumption
+
+
+```{r}
+check_autocorrelation(modelall)
+check_collinearity(modelall)
+check_heteroscedasticity(modelall)
+check_normality(modelall)
+check_outliers(modelall)
+check_distribution(modelall)
+```
+
+
+We still get the same results as defore, except now we check also the non multycolinearity which is satisfied.
+
+
+### linear model with intraction between regressors
+
+we can take the interactions between regressors into account as follows 
+
+```{r}
+modinter<-lm(Ozone~Solar.R*Wind*Temp*Month,data = data)
+tidy(modinter)
+glance(modinter)
+
+```
+
+We see that all the interactions are not significant except for the two way interaction Solar.R vs Month, and two three way interaction Solar.R vs Wind vs Month, and Solar.R vs Temp vs Month, and finnaly the four way interaction Solar.R vs Wind vs Temp vs Month. So let's remove some of the insignificant interactions.  
+
+```{r}
+modinter<-lm(Ozone~.+Solar.R*Wind*Month-Solar.R*Wind-Wind*Month,data = data)
+tidy(modinter)
+glance(modinter)
+```
+
+by using **AIC** the modelall has 1357.304 and this model has 1342.429 so we prefer this model since it has smaller value. 
+
+However, we can also  use anova table to compare these models.
+ 
+
+```{r}
+anova(modelall,modinter)
+```
+
+the small p-value leads to reject the null hypothesism which means that this model performs better.  
+
+
+```{r}
+check_autocorrelation(modinter)
+check_collinearity(modinter)
+check_heteroscedasticity(modinter)
+check_normality(modinter)
+check_outliers(modinter)
+check_distribution(modinter)
+```
+
+
+
+### Model with polynomial regressors
+
+in this model we includ polinomial transformation for the numeric variables since their relations with the target variable seem to be non linear.
+
+
+```{r}
+modpoly<-lm(Ozone~Solar.R+I(Solar.R^2)+Wind+I(Wind^2)+Temp+I(Temp^2)+Month,data = data)
+tidy(modpoly)
+
+```
+
+
+As we see all the variables are significant , so let's get the model statistics
+
+```{r}
+glance(modpoly)
+```
+ 
+
+Now we get high value for the R squared **0.7160**.
+
+Let's check the classical assumptions.
+
+
+```{r}
+check_autocorrelation(modpoly)
+check_collinearity(modpoly)
+check_heteroscedasticity(modpoly)
+check_normality(modpoly)
+check_outliers(modpoly)
+
+```
+
+since we have high correlation between wind and the squared wind we remove the latter.
+
+
+
+```{r}
+modpoly1<-lm(Ozone~Solar.R+I(Solar.R^2)+Wind+Temp+I(Temp^2)+Month,data = data)
+tidy(modpoly1)
+
+```
+
+
+```{r}
+check_autocorrelation(modpoly1)
+check_collinearity(modpoly1)
+check_heteroscedasticity(modpoly1)
+check_normality(modpoly1)
+check_outliers(modpoly1)
+
+```
+
+## Conclusion
+
+Since the most important assumption of linearity is not satisfied for all the above models, the linear regression is not suitable for this data. However, as we have seen earlier the closest suitable distribution is the negative binomial suggested by the **check_distribution** function, which is reasonable taking into account the integer type of the target variable.  
